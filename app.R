@@ -5,7 +5,7 @@ library(plotly)
 library(ggplot2)
 library(vioplot)
 
-setwd("C:/dev/projects/melbourne-housing/")
+setwd("C:/dev/projects/Melbourne housing visualization/")
 source("ui.R")
 
 opts <- leafletOptions(zoomControl=F, minZoom = 10, maxZoom = 12)
@@ -13,7 +13,7 @@ baseMap <- leaflet(options = opts)
 baseMap <- setView(baseMap, lat=-37.814, ln=144.96332, zoom=10)
 baseMap <- addTiles(baseMap)
 
-data <- read.csv("Melbourne_housing_FULL.csv")
+data <- read.csv("data/Melbourne_housing_FULL.csv")
 
 shape <- geojson_read("data/melbourne.geojson", what="sp")
 m <- leaflet(shape, options = opts)
@@ -26,14 +26,22 @@ priceTypeSubData <- na.omit(priceTypeSubData)
 distancePriceRooms <- data[!is.na(data$Distance) & data$Distance!="#N/A" & !is.na(data$Price) & !is.na(data$Rooms), c(3, 5, 9)]
 distancePriceRooms <- na.omit(distancePriceRooms)
 distancePriceRooms$Distance <- as.numeric(distancePriceRooms$Distance)
-distancePriceRoomsPlot <- plot_ly(x=distancePriceRooms$Distance, y=distancePriceRooms$Rooms, z=distancePriceRooms$Price,
-        type="scatter3d", mode="markers", 
-        color=distancePriceRooms$Price)
+distancePriceRoomsPlot <- plot_ly(x=distancePriceRooms$Distance, 
+                                  y=distancePriceRooms$Rooms, 
+                                  z=distancePriceRooms$Price,
+                                  type="scatter3d", mode="markers", 
+                                  color=distancePriceRooms$Price) %>%
+  layout(
+    title = "Layout options in a 3d scatter plot",
+    scene = list(
+      xaxis = list(title = "Distance (km)"),
+      yaxis = list(title = "Rooms"),
+      zaxis = list(title = "Price (AUD)")
+    ))
 
-distancePrice <- data[!is.na(data$Distance) & !is.na(data$Price)  & data$Distance!="#N/A", c(5, 9)]
-distancePrice <- na.omit(distancePrice)
-distancePrice$Distance <- as.numeric(distancePrice$Distance)
-distancePrice <- distancePrice[order(distancePrice$Distance), ]
+priceProgress <- data[!is.na(data$Price), c(5, 8)]
+priceProgress <- na.omit(priceProgress)
+priceProgress <- priceProgress[order(as.Date(priceProgress$Date, format="%d/%m/%Y")), ]
 
 
 priceRooms <- data[!is.na(data$Distance) & !is.na(data$Price), c(3, 5)]
@@ -79,26 +87,6 @@ server <- function(input, output, session){
     
     addCircles(baseMap, lng = subData$long, lat = subData$lat,
                color = pal_(subData$price))
-  })
-  
-  output$locationsType <- renderLeaflet({
-    subData <- data[
-      (as.Date(
-        data$Date, format="%d/%m/%Y") >=
-         as.Date(
-           input$yearsSlider1[1],format="%d/%m/%Y")) & 
-        (as.Date(
-          data$Date, format="%d/%m/%Y") <= 
-           as.Date(
-             input$yearsSlider1[2], format="%d/%m/%Y")),
-      ]
-    subData <- na.omit(subData)
-    subData <- data.frame(type = subData$Type, lat=subData$Lattitude, long=subData$Longtitude)
-    
-    pal_ <- colorNumeric("YlOrRd", domain = subData$type)
-    
-    addCircles(baseMap, lng = subData$long, lat = subData$lat,
-               color = pal_(subData$type))
   })
   
   output$choro <- renderLeaflet({
@@ -192,8 +180,11 @@ server <- function(input, output, session){
                     })
   })
   
-  output$distancePrice <- renderPlot({
-    plot(distancePrice$Distance, distancePrice$Price)
+  output$priceProgress <- renderPlot({
+    plot(priceProgress$Price,
+         xlab = "Time ???",
+         ylab = "Price (AUD) ???", 
+         axes=F)
   })
   
   output$distancePriceRooms <- renderPlotly({
@@ -204,15 +195,47 @@ server <- function(input, output, session){
     x1 <- priceTypeSubData$Price[priceTypeSubData$Type=="t"]
     x2 <- priceTypeSubData$Price[priceTypeSubData$Type=="h"]
     x3 <- priceTypeSubData$Price[priceTypeSubData$Type=="u"]
-    vioplot(x1, x2, x3, names=c("t", "h", "u"))
+    vioplot(x1, x2, x3, names=c("townhouse", "house", "unit"))
   })
   
   output$priceRooms <- renderPlot({
-    boxplot(priceRooms$Price~priceRooms$Rooms, varwidth=T, outline=F)
+    boxplot(priceRooms$Price~priceRooms$Rooms, varwidth=T, outline=F,
+            xlab="Number of rooms",
+            ylab="Price (AUD)")
   })
   
   output$priceLand <- renderPlot({
-    plot(priceLand$Landsize, priceLand$Price, log="x")
+    plot(priceLand$Landsize, priceLand$Price, log="x",
+         ylab = "Price (AUD)",
+         xlab = "Land size in m²")
+  })
+  
+  output$parallel <- renderPlotly({
+    df <- data[data$Distance != "#N/A", c(3, 5, 9, 13, 14)]
+    df <- na.omit(df)
+    df$Distance <- as.numeric(df$Distance)
+    
+    df %>%
+      plot_ly(height = 650) %>%
+      add_trace(type = 'parcoords',
+                line = list(colorscale = 'Jet',
+                            showscale = TRUE,
+                            reversescale = TRUE,
+                            cmin = -4000,
+                            cmax = -100),
+                dimensions = list(
+                  list(range = c(~min(Price),~max(Price)),
+                       label = 'Price (AUD)', values = ~Price),
+                  list(range = c(~min(Landsize),~max(Landsize)),
+                       label = 'Landsize (m²)', values = ~Landsize),
+                  list(range = c(~min(Distance),~max(Distance)),
+                       label = 'Distance (km)', values = ~Distance),
+                  list(range = c(~min(Rooms),~max(Rooms)),
+                       label = 'Rooms', values = ~Rooms),
+                  list(range = c(~min(Car),~max(Car)),
+                       label = 'Car space', values = ~Car)
+                )
+      )
   })
   
   observeEvent(input$selectAll,{
