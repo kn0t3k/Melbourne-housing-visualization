@@ -32,7 +32,6 @@ distancePriceRoomsPlot <- plot_ly(x=distancePriceRooms$Distance,
                                   type="scatter3d", mode="markers", 
                                   color=distancePriceRooms$Price) %>%
   layout(
-    title = "Layout options in a 3d scatter plot",
     scene = list(
       xaxis = list(title = "Distance (km)"),
       yaxis = list(title = "Rooms"),
@@ -42,10 +41,6 @@ distancePriceRoomsPlot <- plot_ly(x=distancePriceRooms$Distance,
 priceProgress <- data[!is.na(data$Price), c(5, 8)]
 priceProgress <- na.omit(priceProgress)
 priceProgress <- priceProgress[order(as.Date(priceProgress$Date, format="%d/%m/%Y")), ]
-
-
-priceRooms <- data[!is.na(data$Distance) & !is.na(data$Price), c(3, 5)]
-priceRooms <- na.omit(priceRooms)
 
 priceLand <- data[!is.na(data$Distance) & !is.na(data$Price), c(5, 14)]
 priceLand <- na.omit(priceLand)
@@ -83,10 +78,18 @@ server <- function(input, output, session){
     subData <- na.omit(subData)
     subData <- data.frame(price = subData$Price, lat=subData$Lattitude, long=subData$Longtitude)
     
-    pal_ <- colorQuantile("YlOrRd", domain = subData$price, n=8)
+    pal_ <- colorQuantile("YlOrRd", domain = subData$price, n=9)
     
-    addCircles(baseMap, lng = subData$long, lat = subData$lat,
-               color = pal_(subData$price))
+    baseMap %>% 
+      addCircles(lng = subData$long, lat = subData$lat,
+               color = pal_(subData$price)) %>%
+      addLegend(pal = pal_, values = subData$price, opacity = 0.7, title = NULL,
+                position = "bottomright", labFormat = function(type, cuts, p) {
+                  n = length(cuts)
+                  f <- format(round(cuts[-n]), big.mark = " ")
+                  t <- format(round(cuts[-1]), big.mark = " ")
+                  cuts = paste0(f, " - ", t)
+                })
   })
   
   output$choro <- renderLeaflet({
@@ -181,10 +184,22 @@ server <- function(input, output, session){
   })
   
   output$priceProgress <- renderPlot({
-    plot(priceProgress$Price,
+    dates <- unique(priceProgress$Date)
+    
+    avgValues <- c()
+    
+    for (d in dates) {
+      subData <- priceProgress[priceProgress$Date == d, 1]
+      avgValues <- c(avgValues, mean(subData))
+    }
+    
+    plot(as.numeric(priceProgress$Date) , priceProgress$Price,
          xlab = "Time ???",
          ylab = "Price (AUD) ???", 
-         axes=F)
+         axes=F,
+         col = rgb(0, 0, 0, max = 255, alpha = 30))
+    axis(side=1, labels = F)
+    points(seq(1, length(dates)), avgValues, col="red")
   })
   
   output$distancePriceRooms <- renderPlotly({
@@ -196,12 +211,6 @@ server <- function(input, output, session){
     x2 <- priceTypeSubData$Price[priceTypeSubData$Type=="h"]
     x3 <- priceTypeSubData$Price[priceTypeSubData$Type=="u"]
     vioplot(x1, x2, x3, names=c("townhouse", "house", "unit"))
-  })
-  
-  output$priceRooms <- renderPlot({
-    boxplot(priceRooms$Price~priceRooms$Rooms, varwidth=T, outline=F,
-            xlab="Number of rooms",
-            ylab="Price (AUD)")
   })
   
   output$priceLand <- renderPlot({
@@ -218,8 +227,7 @@ server <- function(input, output, session){
     df %>%
       plot_ly(height = 650) %>%
       add_trace(type = 'parcoords',
-                line = list(colorscale = 'Jet',
-                            showscale = TRUE,
+                line = list(showscale = TRUE,
                             reversescale = TRUE,
                             cmin = -4000,
                             cmax = -100),
