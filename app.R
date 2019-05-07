@@ -3,7 +3,6 @@ library(leaflet)
 library(geojsonio)
 library(plotly)
 library(ggplot2)
-library(vioplot)
 
 setwd("C:/dev/projects/Melbourne housing visualization/")
 source("ui.R")
@@ -14,57 +13,22 @@ baseMap <- setView(baseMap, lat=-37.814, ln=144.96332, zoom=10)
 baseMap <- addTiles(baseMap)
 
 data <- read.csv("data/Melbourne_housing_FULL.csv")
+data <- na.omit(data)
 
 shape <- geojson_read("data/melbourne.geojson", what="sp")
 m <- leaflet(shape, options = opts)
 m <- setView(m, lat=-37.814, ln=144.96332, zoom=10)
 m <- addTiles(m)
 
-priceTypeSubData <- data[!is.na(data$Distance) & !is.na(data$Price), c(4, 5)]
-priceTypeSubData <- na.omit(priceTypeSubData)
-
-distancePriceRooms <- data[!is.na(data$Distance) & data$Distance!="#N/A" & !is.na(data$Price) & !is.na(data$Rooms), c(3, 5, 9)]
-distancePriceRooms <- na.omit(distancePriceRooms)
-distancePriceRooms$Distance <- as.numeric(distancePriceRooms$Distance)
-distancePriceRoomsPlot <- plot_ly(x=distancePriceRooms$Distance, 
-                                  y=distancePriceRooms$Rooms, 
-                                  z=distancePriceRooms$Price,
-                                  type="scatter3d", mode="markers", 
-                                  color=distancePriceRooms$Price) %>%
-  layout(
-    scene = list(
-      xaxis = list(title = "Distance (km)"),
-      yaxis = list(title = "Rooms"),
-      zaxis = list(title = "Price (AUD)")
-    ))
-
-priceProgress <- data[!is.na(data$Price), c(5, 8)]
-priceProgress <- na.omit(priceProgress)
-priceProgress <- priceProgress[order(as.Date(priceProgress$Date, format="%d/%m/%Y")), ]
-
-priceLand <- data[!is.na(data$Distance) & !is.na(data$Price), c(5, 14)]
-priceLand <- na.omit(priceLand)
-
-
 ui <- getUI(data)
 
+data$selected_ <- rep(F, dim(data)[1])
+
 server <- function(input, output, session){
-  output$locations <- renderLeaflet({
-    subData <- data[
-      (as.Date(
-        data$Date, format="%d/%m/%Y") >=
-      as.Date(
-        input$yearsSlider1[1],format="%d/%m/%Y")) & 
-      (as.Date(
-        data$Date, format="%d/%m/%Y") <= 
-        as.Date(
-          input$yearsSlider1[2], format="%d/%m/%Y")),
-      ]
-    subData <- na.omit(subData)
-    addCircles(baseMap, lng = subData$Longtitude, lat = subData$Lattitude)
-  })
+  bPoints <- reactiveValues(p = data)
+  lastActiveBrush <- reactiveValues(x=0)
   
-  output$locationsColor <- renderLeaflet({
+  output$locations <- renderLeaflet({
     subData <- data[
       (as.Date(
         data$Date, format="%d/%m/%Y") >=
@@ -78,18 +42,22 @@ server <- function(input, output, session){
     subData <- na.omit(subData)
     subData <- data.frame(price = subData$Price, lat=subData$Lattitude, long=subData$Longtitude)
     
-    pal_ <- colorQuantile("YlOrRd", domain = subData$price, n=9)
-    
-    baseMap %>% 
-      addCircles(lng = subData$long, lat = subData$lat,
-               color = pal_(subData$price)) %>%
-      addLegend(pal = pal_, values = subData$price, opacity = 0.7, title = NULL,
-                position = "bottomright", labFormat = function(type, cuts, p) {
-                  n = length(cuts)
-                  f <- format(round(cuts[-n]), big.mark = " ")
-                  t <- format(round(cuts[-1]), big.mark = " ")
-                  cuts = paste0(f, " - ", t)
-                })
+    if(input$showColor==T){
+      pal_ <- colorQuantile("YlOrRd", domain = subData$price, n=9)
+      
+      baseMap %>% 
+        addCircles(lng = subData$long, lat = subData$lat,
+                   color = pal_(subData$price)) %>%
+        addLegend(pal = pal_, values = subData$price, opacity = 0.7, title = NULL,
+                  position = "bottomright", labFormat = function(type, cuts, p) {
+                    n = length(cuts)
+                    f <- format(round(cuts[-n]), big.mark = " ")
+                    t <- format(round(cuts[-1]), big.mark = " ")
+                    cuts = paste0(f, " - ", t, " AUD")
+                  })
+    } else {
+      addCircles(baseMap, lng = subData$long, lat = subData$lat)
+    }
   })
   
   output$choro <- renderLeaflet({
@@ -179,77 +147,148 @@ server <- function(input, output, session){
                       n = length(cuts)
                       f <- format(round(cuts[-n]), big.mark = " ")
                       t <- format(round(cuts[-1]), big.mark = " ")
-                      cuts = paste0(f, " - ", t)
+                      cuts = paste0(f, " - ", t, " AUD")
                     })
   })
   
-  output$priceProgress <- renderPlot({
-    dates <- unique(priceProgress$Date)
+  output$multiView1 <- renderPlot({
+    brushed <- bPoints$p
+    colors = rep("lightblue", dim(data)[1])
     
-    avgValues <- c()
-    
-    for (d in dates) {
-      subData <- priceProgress[priceProgress$Date == d, 1]
-      avgValues <- c(avgValues, mean(subData))
+    if(lastActiveBrush$x==1){
+      colors[brushed$selected_ == T] <- "lightpink"
+    } else {
+      colors[brushed$selected_ == T] <- "black"
     }
     
-    plot(as.numeric(priceProgress$Date) , priceProgress$Price,
-         xlab = "Time ???",
-         ylab = "Price (AUD) ???", 
-         axes=F,
-         col = rgb(0, 0, 0, max = 255, alpha = 30))
-    axis(side=1, labels = F)
-    points(seq(1, length(dates)), avgValues, col="red")
+    ggplot(brushed,
+           aes(Rooms, Price)) + geom_point(color=colors) +
+      scale_x_continuous(breaks=scales::pretty_breaks(n = 12)) +
+      scale_y_continuous(breaks=scales::pretty_breaks(n = 12),
+                         labels = scales::number) +
+      labs(y = "Price (AUD)")
   })
   
-  output$distancePriceRooms <- renderPlotly({
-    distancePriceRoomsPlot
-  })
-  
-  output$priceType <- renderPlot({
-    x1 <- priceTypeSubData$Price[priceTypeSubData$Type=="t"]
-    x2 <- priceTypeSubData$Price[priceTypeSubData$Type=="h"]
-    x3 <- priceTypeSubData$Price[priceTypeSubData$Type=="u"]
-    vioplot(x1, x2, x3, names=c("townhouse", "house", "unit"))
-  })
-  
-  output$priceLand <- renderPlot({
-    plot(priceLand$Landsize, priceLand$Price, log="x",
-         ylab = "Price (AUD)",
-         xlab = "Land size in m²")
-  })
-  
-  output$parallel <- renderPlotly({
-    df <- data[data$Distance != "#N/A", c(3, 5, 9, 13, 14)]
-    df <- na.omit(df)
-    df$Distance <- as.numeric(df$Distance)
+  output$multiView2 <- renderPlot({
+    brushed <- bPoints$p
+    colors = rep("lightblue", dim(data)[1])
     
-    df %>%
-      plot_ly(height = 650) %>%
-      add_trace(type = 'parcoords',
-                line = list(showscale = TRUE,
-                            reversescale = TRUE,
-                            cmin = -4000,
-                            cmax = -100),
-                dimensions = list(
-                  list(range = c(~min(Price),~max(Price)),
-                       label = 'Price (AUD)', values = ~Price),
-                  list(range = c(~min(Landsize),~max(Landsize)),
-                       label = 'Landsize (m²)', values = ~Landsize),
-                  list(range = c(~min(Distance),~max(Distance)),
-                       label = 'Distance (km)', values = ~Distance),
-                  list(range = c(~min(Rooms),~max(Rooms)),
-                       label = 'Rooms', values = ~Rooms),
-                  list(range = c(~min(Car),~max(Car)),
-                       label = 'Car space', values = ~Car)
-                )
-      )
+    if(lastActiveBrush$x==2){
+      colors[brushed$selected_ == T] <- "lightpink"
+    } else {
+      colors[brushed$selected_ == T] <- "black"
+    }
+    
+    brushed$Distance <- as.numeric(brushed$Distance)
+    
+    ggplot(brushed,
+           aes(Distance, Price)) + geom_point(color=colors) + 
+      scale_x_continuous(breaks=scales::pretty_breaks(n = 10)) +
+      scale_y_continuous(breaks=scales::pretty_breaks(n = 12),
+                         labels = scales::number) +
+      labs(y = "Price (AUD)") +
+      labs(x = "Distance (km)")
+  })
+  
+  output$multiView3 <- renderPlot({
+    brushed <- bPoints$p
+    colors = rep("lightblue", dim(data)[1])
+    
+    if(lastActiveBrush$x==3){
+      colors[brushed$selected_ == T] <- "lightpink"
+    } else {
+      colors[brushed$selected_ == T] <- "black"
+    }
+    
+    ggplot(brushed,
+           aes(Landsize, Price)) + geom_point(color=colors) + scale_x_continuous(
+             trans = "log",
+             breaks = c(1, 10, 100, 1000, 10000, 100000)) +
+      scale_y_continuous(breaks=scales::pretty_breaks(n = 12),
+                         labels = scales::number) +
+      labs(y = "Price (AUD)") +
+      labs(x = "Landsize (in m^2)")
+  })
+  
+  output$multiView4 <- renderPlot({
+    brushed <- bPoints$p
+    colors = rep("lightblue", dim(data)[1])
+    
+    if(lastActiveBrush$x==4){
+      colors[brushed$selected_ == T] <- "lightpink"
+    } else {
+      colors[brushed$selected_ == T] <- "black"
+    }
+    
+    brushed$Distance <- as.numeric(brushed$Distance)
+    
+    ggplot(brushed,
+           aes(Distance, Rooms)) + geom_point(color=colors) +
+      scale_x_continuous(breaks=scales::pretty_breaks(n = 10)) +
+      scale_y_continuous(breaks=scales::pretty_breaks(n = 12)) +
+      labs(x = "Distance (km)")
   })
   
   observeEvent(input$selectAll,{
     updateDateRangeInput(session, "yearsSlider1",
                          start=min(as.Date(data$Date, format="%d/%m/%Y")),
                          end=max(as.Date(data$Date, format="%d/%m/%Y")))
+  })
+  
+  observeEvent(input$multiViewBrush1, {
+    bPoints$p <- brushedPoints(data, input$multiViewBrush1, allRows = T)
+    bPoints$p <- bPoints$p[order(bPoints$p$selected_), ]
+    session$resetBrush("multiViewBrush2")
+    session$resetBrush("multiViewBrush3")
+    session$resetBrush("multiViewBrush4")
+    lastActiveBrush$x=1
+  })
+  
+  observeEvent(input$multiViewBrush2, {
+    bPoints$p <- brushedPoints(data, input$multiViewBrush2, allRows = T)
+    bPoints$p <- bPoints$p[order(bPoints$p$selected_), ]
+    session$resetBrush("multiViewBrush1")
+    session$resetBrush("multiViewBrush3")
+    session$resetBrush("multiViewBrush4")
+    lastActiveBrush$x=2
+  })
+  
+  observeEvent(input$multiViewBrush3, {
+    bPoints$p <- brushedPoints(data, input$multiViewBrush3, allRows = T)
+    bPoints$p <- bPoints$p[order(bPoints$p$selected_), ]
+    session$resetBrush("multiViewBrush2")
+    session$resetBrush("multiViewBrush1")
+    session$resetBrush("multiViewBrush4")
+    lastActiveBrush$x=3
+  })
+  
+  observeEvent(input$multiViewBrush4, {
+    bPoints$p <- brushedPoints(data, input$multiViewBrush4, allRows = T)
+    bPoints$p <- bPoints$p[order(bPoints$p$selected_), ]
+    session$resetBrush("multiViewBrush2")
+    session$resetBrush("multiViewBrush3")
+    session$resetBrush("multiViewBrush1")
+    lastActiveBrush$x=4
+  })
+
+  observeEvent(input$multiViewClick1, {
+    bPoints$p <- data
+    lastActiveBrush$x=0
+  })
+  
+  observeEvent(input$multiViewClick2, {
+    bPoints$p <- data
+    lastActiveBrush$x=0
+  })
+  
+  observeEvent(input$multiViewClick3, {
+    bPoints$p <- data
+    lastActiveBrush$x=0
+  })
+  
+  observeEvent(input$multiViewClick4, {
+    bPoints$p <- data
+    lastActiveBrush$x=0
   })
 }
 
