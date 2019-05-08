@@ -47,7 +47,8 @@ server <- function(input, output, session){
       
       baseMap %>% 
         addCircles(lng = subData$long, lat = subData$lat,
-                   color = pal_(subData$price)) %>%
+                   color = pal_(subData$price), fill = T, fillColor = pal_(subData$price),
+                   fillOpacity = 0.5, opacity = 0.5) %>%
         addLegend(pal = pal_, values = subData$price, opacity = 0.7, title = NULL,
                   position = "bottomright", labFormat = function(type, cuts, p) {
                     n = length(cuts)
@@ -56,7 +57,8 @@ server <- function(input, output, session){
                     cuts = paste0(f, " - ", t, " AUD")
                   })
     } else {
-      addCircles(baseMap, lng = subData$long, lat = subData$lat)
+      addCircles(baseMap, lng = subData$long, lat = subData$lat, fill = T,
+                 fillOpacity = 0.5, opacity = 0.5)
     }
   })
   
@@ -103,6 +105,7 @@ server <- function(input, output, session){
       outSubData <- rbind(outSubData, rowDf)
     }
     
+    unit <- " AUD"
     if(input$measure == "Mean"){
       d <- outSubData$Mean
     } else if (input$measure == "Min"){
@@ -111,6 +114,7 @@ server <- function(input, output, session){
       d <- outSubData$Max
     } else if (input$measure == "# Sold"){
       d <- outSubData$Obs
+      unit <- " units"
     }
     
     pal_ <- colorQuantile("YlOrRd", domain = d, n=8)
@@ -147,7 +151,7 @@ server <- function(input, output, session){
                       n = length(cuts)
                       f <- format(round(cuts[-n]), big.mark = " ")
                       t <- format(round(cuts[-1]), big.mark = " ")
-                      cuts = paste0(f, " - ", t, " AUD")
+                      cuts = paste0(f, " - ", t, unit)
                     })
   })
   
@@ -187,7 +191,7 @@ server <- function(input, output, session){
       scale_y_continuous(breaks=scales::pretty_breaks(n = 12),
                          labels = scales::number) +
       labs(y = "Price (AUD)") +
-      labs(x = "Distance (km)")
+      labs(x = "Distance from center (km)")
   })
   
   output$multiView3 <- renderPlot({
@@ -201,9 +205,8 @@ server <- function(input, output, session){
     }
     
     ggplot(brushed,
-           aes(Landsize, Price)) + geom_point(color=colors) + scale_x_continuous(
-             trans = "log",
-             breaks = c(1, 10, 100, 1000, 10000, 100000)) +
+           aes(YearBuilt, Price)) + geom_point(color=colors) + 
+      xlim(1850, 2018) + 
       scale_y_continuous(breaks=scales::pretty_breaks(n = 12),
                          labels = scales::number) +
       labs(y = "Price (AUD)") +
@@ -226,7 +229,7 @@ server <- function(input, output, session){
            aes(Distance, Rooms)) + geom_point(color=colors) +
       scale_x_continuous(breaks=scales::pretty_breaks(n = 10)) +
       scale_y_continuous(breaks=scales::pretty_breaks(n = 12)) +
-      labs(x = "Distance (km)")
+      labs(x = "Distance from center (km)")
   })
   
   observeEvent(input$selectAll,{
