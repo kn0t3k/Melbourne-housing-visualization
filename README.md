@@ -17,6 +17,7 @@ Preprocessing is fairly simple, omit NAs, some other strange values.
 Basically to create a particular view of the data, I select it somehow from the complete dataset, transform if neccessary (mainly because of the date format) and plot it.
 
 When running, don't forget to change your working directory in the app.R file.
+You will need internet connection for the maps to load correctly.
 
 UI is simple, created with Shiny.
 
